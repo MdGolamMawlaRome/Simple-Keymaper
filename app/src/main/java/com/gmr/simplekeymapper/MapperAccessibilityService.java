@@ -1,4 +1,4 @@
-package com.example.simplekeymapper;
+package com.gmr.simplekeymapper;
 
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
