@@ -7,6 +7,7 @@ import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.os.Build;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
@@ -46,7 +47,7 @@ public class MapperAccessibilityService extends AccessibilityService {
     public void onInterrupt() {}
 
     public void startKeymapperUI() {
-        if (isUiRunning) return; // অলরেডি চললে ডুপ্লিকেট ভিউ অ্যাড হবে না
+        if (isUiRunning) return;
         isUiRunning = true;
         createMainFloatingMenu();
         createMouseLockTrigger();
@@ -133,7 +134,6 @@ public class MapperAccessibilityService extends AccessibilityService {
         return rowBtn;
     }
 
-    // কাস্টম বাটন তৈরি এবং লং-প্রেস করে রিমুভ করার লজিক
     private void createTransparentMappedButton(final String actionName) {
         if (activeMappedButtons.containsKey(actionName)) return;
 
@@ -142,7 +142,7 @@ public class MapperAccessibilityService extends AccessibilityService {
         btnView.setTextColor(Color.WHITE);
         btnView.setGravity(Gravity.CENTER);
         btnView.setPadding(20, 20, 20, 20);
-        btnView.setBackgroundColor(Color.parseColor("#80FF0000")); // ৫০% ট্রান্সপারেন্ট লাল
+        btnView.setBackgroundColor(Color.parseColor("#80FF0000"));
 
         int layoutFlag = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? 
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE;
@@ -158,7 +158,6 @@ public class MapperAccessibilityService extends AccessibilityService {
         params.x = 400;
         params.y = 400;
 
-        // ড্র্যাগ অ্যান্ড ড্রপ লজিক
         btnView.setOnTouchListener(new View.OnTouchListener() {
             private int initialX, initialY;
             private float initialTouchX, initialTouchY;
@@ -171,7 +170,7 @@ public class MapperAccessibilityService extends AccessibilityService {
                         initialY = params.y;
                         initialTouchX = event.getRawX();
                         initialTouchY = event.getRawY();
-                        return false; // Long Click সচল রাখার জন্য false দিতে হবে
+                        return false; 
                     case MotionEvent.ACTION_MOVE:
                         params.x = initialX + (int) (event.getRawX() - initialTouchX);
                         params.y = initialY + (int) (event.getRawY() - initialTouchY);
@@ -183,7 +182,6 @@ public class MapperAccessibilityService extends AccessibilityService {
             }
         });
 
-        // ফিক্সড: বাটনটি রিমুভ করার জন্য লং-প্রেস (চেপে ধরে রাখুন) লজিক
         btnView.setOnLongClickListener(v -> {
             windowManager.removeView(btnView);
             activeMappedButtons.remove(actionName);
@@ -198,7 +196,6 @@ public class MapperAccessibilityService extends AccessibilityService {
         Toast.makeText(this, "Long-press button to remove it", Toast.LENGTH_SHORT).show();
     }
 
-    // ফিক্সড: মাউস লক করার ক্ষুদ্র বাটন (যা গেমের টাচ ব্লক করবে না)
     private void createMouseLockTrigger() {
         mouseLockButton = new Button(this);
         mouseLockButton.setText("LOCK MOUSE");
@@ -212,30 +209,47 @@ public class MapperAccessibilityService extends AccessibilityService {
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 layoutFlag,
-                0, // প্রথমে ফোকাসড থাকবে যাতে মাউস ক্লিক ধরতে পারে
+                0, 
                 PixelFormat.TRANSLUCENT
         );
         params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         params.y = 20;
 
-        // মাউস লক মোড (Pointer Capture Engine)
         mouseLockButton.setOnClickListener(v -> {
             if (!isMouseLocked) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.A_ROOT || Build.VERSION.SDK_INT >= 26) {
+                if (Build.VERSION.SDK_INT >= 26) {
                     params.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
                     windowManager.updateViewLayout(mouseLockButton, params);
                     mouseLockButton.requestFocus();
-                    mouseLockButton.requestPointerCapture(); // মাউস কার্সার উধাও এবং লক হবে
-                    mouseLockButton.setText("LOCKED (Right-Click to Unlock)");
-                    mouseLockButton.setBackgroundColor(Color.getHtmlColor("green"));
+                    mouseLockButton.requestPointerCapture(); 
+                    mouseLockButton.setText("LOCKED (Press ESC or BACK to Unlock)");
+                    mouseLockButton.setBackgroundColor(Color.GREEN);
                     isMouseLocked = true;
                 }
             }
         });
 
-        // লকড অবস্থায় মাউস মুভমেন্ট এবং কাস্টম ক্লিকের আসল ট্র্যাকিং
+        // ফিক্সড লজিক: কিবোর্ডের ESC কী অথবা ফোনের BACK বাটন চাপলে মাউস কার্সার মুক্ত (Unlock) হবে
+        mouseLockButton.setOnKeyListener((v, keyCode, event) -> {
+            if (isMouseLocked && (keyCode == KeyEvent.KEYCODE_ESCAPE || keyCode == KeyEvent.KEYCODE_BACK)) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    if (Build.VERSION.SDK_INT >= 26) {
+                        mouseLockButton.releasePointerCapture();
+                        params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                        windowManager.updateViewLayout(mouseLockButton, params);
+                        mouseLockButton.setText("LOCK MOUSE");
+                        mouseLockButton.setBackgroundColor(Color.RED);
+                        isMouseLocked = false;
+                        Toast.makeText(this, "Mouse Unlocked!", Toast.LENGTH_SHORT).show();
+                    }
+                    return true;
+                }
+            }
+            return false;
+        });
+
+        // মাউসের সব বাটন এখন স্বাধীনভাবে গেমের কাস্টম ক্লিকে কাজ করবে
         mouseLockButton.setOnCapturedPointerListener((v, event) -> {
-            // ১. মাউস নড়াচড়া (Look Around Camera)
             float x = event.getX();
             float y = event.getY();
             if (x != 0 || y != 0) {
@@ -243,26 +257,17 @@ public class MapperAccessibilityService extends AccessibilityService {
                 return true;
             }
 
-            // ২. মাউস হুইল স্ক্রল ট্র্যাকিং
             float scroll = event.getAxisValue(MotionEvent.AXIS_VSCROLL);
             if (scroll > 0) { triggerMappedClick("Scroll Up"); return true; }
             else if (scroll < 0) { triggerMappedClick("Scroll Down"); return true; }
 
-            // ৩. মাউস বাটন ক্লিক ট্র্যাকিং
             int buttonState = event.getButtonState();
             if ((buttonState & MotionEvent.BUTTON_PRIMARY) != 0) {
                 triggerMappedClick("Left Click");
                 return true;
             } else if ((buttonState & MotionEvent.BUTTON_SECONDARY) != 0) {
-                // রাইট ক্লিক করলে মাউস আনলক হয়ে যাবে এবং গেম নরমাল হয়ে যাবে
-                if (Build.VERSION.SDK_INT >= 26) {
-                    mouseLockButton.releasePointerCapture();
-                    params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-                    windowManager.updateViewLayout(mouseLockButton, params);
-                    mouseLockButton.setText("LOCK MOUSE");
-                    mouseLockButton.setBackgroundColor(Color.RED);
-                    isMouseLocked = false;
-                }
+                // ফিক্সড: রাইট ক্লিক এখন আর আনলক করবে না, সরাসরি আপনার দেওয়া কাস্টম বাটন (যেমন স্কোপ) ট্রিগার করবে!
+                triggerMappedClick("Right Click");
                 return true;
             } else if ((buttonState & MotionEvent.BUTTON_TERTIARY) != 0) {
                 triggerMappedClick("Scroll Click");
@@ -288,7 +293,7 @@ public class MapperAccessibilityService extends AccessibilityService {
 
     private void simulateMouseLook(float deltaX, float deltaY) {
         Path swipePath = new Path();
-        swipePath.moveTo(800f, 1000f); // স্ক্রিনের সেন্টার পয়েন্ট
+        swipePath.moveTo(800f, 1000f); 
         swipePath.lineTo(800f + deltaX, 1000f + deltaY);
         GestureDescription.Builder gestureBuilder = new GestureDescription.Builder();
         gestureBuilder.addStroke(new GestureDescription.StrokeDescription(swipePath, 0, 25));
